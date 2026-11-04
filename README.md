@@ -75,31 +75,14 @@ GOOGLE_API_KEY="your-key-here"
 
 `.env` is listed in `.gitignore`, so the key stays on your machine.
 
-The app reads `GOOGLE_API_KEY` from the environment. Load `.env` in the same terminal session before you run it.
+The app loads `.env` on startup.
 
-**macOS**
+### 4. Run the app
+
+With the virtual environment still active:
 
 ```bash
-set -a
-source .env
-set +a
-python main.py
+streamlit run main.py
 ```
 
-**Windows (PowerShell)**
-
-```powershell
-Get-Content .env | ForEach-Object {
-  if ($_ -match '^\s*([^#=]+)=(.*)$') {
-    Set-Item -Path "Env:$($matches[1].Trim())" -Value $matches[2].Trim().Trim('"')
-  }
-}
-python main.py
-```
-
-**Windows (Command Prompt)**
-
-```cmd
-set GOOGLE_API_KEY=your-key-here
-python main.py
-```
+The same command works on macOS and Windows. Open the local URL Streamlit prints. The floor shows which machines are available or in use, and the assistant uses your API key to suggest a plan from the open ones.
