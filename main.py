@@ -2,6 +2,7 @@ import json
 import os
 import random
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import google.generativeai as genai
 import streamlit as st
@@ -10,6 +11,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 MODEL_NAME = "gemini-2.5-flash"
+TORONTO_TZ = ZoneInfo("America/Toronto")
 
 # name, zone, what it trains
 CATALOG = [
@@ -171,7 +173,7 @@ def ask_assistant(question, floor, history):
 def ensure_state():
     if "floor" not in st.session_state:
         st.session_state.floor = fresh_floor()
-        st.session_state.updated_at = datetime.now()
+        st.session_state.updated_at = datetime.now(TORONTO_TZ)
         st.session_state.messages = []
 
 
@@ -179,7 +181,7 @@ def render_board():
     floor = st.session_state.floor
     open_count = sum(not machine["in_use"] for machine in floor)
     busy_count = len(floor) - open_count
-    updated = st.session_state.updated_at.strftime("%I:%M %p").lstrip("0")
+    updated = st.session_state.updated_at.astimezone(TORONTO_TZ).strftime("%I:%M %p").lstrip("0")
 
     title_col, action_col = st.columns([4, 1])
     with title_col:
@@ -192,7 +194,7 @@ def render_board():
         st.write("")
         if st.button("Refresh status", width="stretch"):
             refresh_floor(floor)
-            st.session_state.updated_at = datetime.now()
+            st.session_state.updated_at = datetime.now(TORONTO_TZ)
             st.rerun()
 
     metric_cols = st.columns(3)
