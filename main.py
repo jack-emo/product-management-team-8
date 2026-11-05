@@ -13,38 +13,40 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 MODEL_NAME = "gemini-2.5-flash"
 TORONTO_TZ = ZoneInfo("America/Toronto")
 
-# name, zone, what it trains
+# name, zone, what it trains, typical session in minutes
 CATALOG = [
-    ("Treadmill 1", "Cardio", "Cardio"),
-    ("Treadmill 2", "Cardio", "Cardio"),
-    ("Treadmill 3", "Cardio", "Cardio"),
-    ("Treadmill 4", "Cardio", "Cardio"),
-    ("Elliptical 1", "Cardio", "Cardio"),
-    ("Elliptical 2", "Cardio", "Cardio"),
-    ("Bike 1", "Cardio", "Cardio"),
-    ("Bike 2", "Cardio", "Cardio"),
-    ("Rower", "Cardio", "Cardio, back"),
-    ("Stair climber", "Cardio", "Cardio, legs"),
-    ("Squat rack 1", "Free weights", "Quads, glutes"),
-    ("Squat rack 2", "Free weights", "Quads, glutes"),
-    ("Flat bench 1", "Free weights", "Chest, triceps"),
-    ("Flat bench 2", "Free weights", "Chest, triceps"),
-    ("Incline bench", "Free weights", "Upper chest, shoulders"),
-    ("Dumbbell area", "Free weights", "Full body"),
-    ("Leg press", "Machines", "Quads, glutes"),
-    ("Hack squat", "Machines", "Quads, glutes"),
-    ("Leg extension", "Machines", "Quads"),
-    ("Leg curl", "Machines", "Hamstrings"),
-    ("Lat pulldown", "Machines", "Back"),
-    ("Seated row", "Machines", "Back"),
-    ("Cable station", "Machines", "Back, chest, arms"),
-    ("Chest press", "Machines", "Chest, triceps"),
-    ("Shoulder press", "Machines", "Shoulders"),
-    ("Pec deck", "Machines", "Chest"),
-    ("Assisted pull-up", "Machines", "Back, biceps"),
-    ("Biceps curl", "Machines", "Biceps"),
-    ("Dip station", "Machines", "Triceps, chest"),
+    ("Treadmill 1", "Cardio", "Cardio", 30),
+    ("Treadmill 2", "Cardio", "Cardio", 30),
+    ("Treadmill 3", "Cardio", "Cardio", 30),
+    ("Treadmill 4", "Cardio", "Cardio", 30),
+    ("Elliptical 1", "Cardio", "Cardio", 20),
+    ("Elliptical 2", "Cardio", "Cardio", 20),
+    ("Bike 1", "Cardio", "Cardio", 20),
+    ("Bike 2", "Cardio", "Cardio", 20),
+    ("Rower", "Cardio", "Cardio, back", 15),
+    ("Stair climber", "Cardio", "Cardio, legs", 15),
+    ("Squat rack 1", "Free weights", "Quads, glutes", 20),
+    ("Squat rack 2", "Free weights", "Quads, glutes", 20),
+    ("Flat bench 1", "Free weights", "Chest, triceps", 15),
+    ("Flat bench 2", "Free weights", "Chest, triceps", 15),
+    ("Incline bench", "Free weights", "Upper chest, shoulders", 15),
+    ("Dumbbell area", "Free weights", "Full body", 20),
+    ("Leg press", "Machines", "Quads, glutes", 12),
+    ("Hack squat", "Machines", "Quads, glutes", 12),
+    ("Leg extension", "Machines", "Quads", 10),
+    ("Leg curl", "Machines", "Hamstrings", 10),
+    ("Lat pulldown", "Machines", "Back", 12),
+    ("Seated row", "Machines", "Back", 12),
+    ("Cable station", "Machines", "Back, chest, arms", 15),
+    ("Chest press", "Machines", "Chest, triceps", 12),
+    ("Shoulder press", "Machines", "Shoulders", 12),
+    ("Pec deck", "Machines", "Chest", 10),
+    ("Assisted pull-up", "Machines", "Back, biceps", 10),
+    ("Biceps curl", "Machines", "Biceps", 8),
+    ("Dip station", "Machines", "Triceps, chest", 10),
 ]
+
+USUAL_SESSION = {name: usual for name, _, _, usual in CATALOG}
 
 SUGGESTIONS = [
     "I want chest. What's actually free?",
@@ -56,7 +58,8 @@ SYSTEM = """You help a person who is already at a public gym avoid waiting on ta
 You receive the live floor, split into available and in_use.
 Recommend only machines listed under available.
 If the machines they would normally use are in use, say those are taken and point them to a free machine that trains the same muscles.
-Use minutes_in_use only to say a station was recently started. Do not guess when someone will get off.
+Each in-use machine includes minutes_in_use, usual_session_minutes, and estimated_wait_minutes. The estimate is the usual session minus time already in use. Mention that estimate when it helps someone decide whether to wait. Do not invent a different wait. If estimated_wait_minutes is 0, the usual session is already over.
+A machine with yours set to true is the user's own session. They are already on it. Do not treat it as someone else to wait on, and do not recommend it as a free machine.
 Give a short plan they can follow right now: where to go, in order.
 Do not invent equipment that is not on the floor.
 If an earlier message conflicts with the live floor, follow the live floor."""
@@ -70,27 +73,63 @@ def has_api_key():
     return lowered not in {"your_google_api_key_here", "your-key-here"}
 
 
+def usual_session(machine):
+    return machine.get("usual_minutes", USUAL_SESSION[machine["name"]])
+
+
+def estimated_wait(machine):
+    return max(usual_session(machine) - machine["minutes"], 0)
+
+
 def fresh_floor():
     floor = []
-    for name, zone, muscles in CATALOG:
+    for name, zone, muscles, usual in CATALOG:
         in_use = random.random() < 0.45
         floor.append(
             {
                 "name": name,
                 "zone": zone,
                 "muscles": muscles,
+                "usual_minutes": usual,
                 "in_use": in_use,
-                "minutes": random.randint(4, 28) if in_use else 0,
+                "booked_by_you": False,
+                "minutes": random.randint(4, max(4, usual - 2)) if in_use else 0,
             }
         )
     return floor
 
 
+def claim_machine(floor, name):
+    for machine in floor:
+        if machine["name"] == name and not machine["in_use"]:
+            machine["in_use"] = True
+            machine["minutes"] = 0
+            machine["booked_by_you"] = True
+            return True
+    return False
+
+
+def release_machine(floor, name):
+    for machine in floor:
+        if machine["name"] == name and machine.get("booked_by_you"):
+            machine["in_use"] = False
+            machine["minutes"] = 0
+            machine["booked_by_you"] = False
+            return True
+    return False
+
+
 def refresh_floor(floor):
     for machine in floor:
+        usual = usual_session(machine)
+        machine["usual_minutes"] = usual
+        if machine.get("booked_by_you"):
+            continue
         if random.random() < 0.28:
             machine["in_use"] = not machine["in_use"]
-            machine["minutes"] = random.randint(1, 12) if machine["in_use"] else 0
+            machine["minutes"] = (
+                random.randint(1, max(1, usual // 2)) if machine["in_use"] else 0
+            )
         elif machine["in_use"]:
             machine["minutes"] += random.randint(1, 4)
 
@@ -106,6 +145,10 @@ def floor_for_model(floor):
         }
         if machine["in_use"]:
             entry["minutes_in_use"] = machine["minutes"]
+            entry["usual_session_minutes"] = usual_session(machine)
+            entry["estimated_wait_minutes"] = estimated_wait(machine)
+            if machine.get("booked_by_you"):
+                entry["yours"] = True
             in_use.append(entry)
         else:
             available.append(entry)
@@ -120,9 +163,19 @@ def show_html(html):
 
 
 def render_card(machine):
-    if machine["in_use"]:
+    if machine.get("booked_by_you"):
+        label = "Your session"
+        remaining = estimated_wait(machine)
+        elapsed = "Just started" if machine["minutes"] == 0 else f"{machine['minutes']} min"
+        wait = "usual session over" if remaining == 0 else f"~{remaining} min left"
+        detail = f"{elapsed} · {wait}"
+        accent = "#175cd3"
+        background = "#f5f8ff"
+    elif machine["in_use"]:
         label = "In use"
-        detail = f"{machine['minutes']} min"
+        remaining = estimated_wait(machine)
+        wait = "usual session over" if remaining == 0 else f"~{remaining} min left"
+        detail = f"{machine['minutes']} min · {wait}"
         accent = "#b42318"
         background = "#fff7f6"
     else:
@@ -187,8 +240,8 @@ def render_board():
     with title_col:
         st.title("What's free right now")
         st.caption(
-            f"Updated {updated}. Proof of concept with a simulated floor, "
-            "so you can see open machines before you walk over and wait."
+            f"Updated {updated}. Simulated floor. A taken machine shows time in use "
+            "and about how long is left in a typical session."
         )
     with action_col:
         st.write("")
@@ -201,6 +254,8 @@ def render_board():
     metric_cols[0].metric("Available", open_count)
     metric_cols[1].metric("In use", busy_count)
     metric_cols[2].metric("On the floor", len(floor))
+
+    render_booking(floor)
 
     filter_cols = st.columns(2)
     zone = filter_cols[0].selectbox(
@@ -235,6 +290,38 @@ def render_board():
         for index, machine in enumerate(group):
             with columns[index % 3]:
                 render_card(machine)
+
+
+def render_booking(floor):
+    open_names = [machine["name"] for machine in floor if not machine["in_use"]]
+    yours = [machine["name"] for machine in floor if machine.get("booked_by_you")]
+
+    st.subheader("Your session")
+    st.caption(
+        "Claim an open machine on this screen. Refresh leaves it in place. "
+        "Reloading the page clears it."
+    )
+    claim_col, release_col = st.columns(2)
+    with claim_col:
+        if open_names:
+            with st.form("claim_form"):
+                choice = st.selectbox("Open machine", open_names)
+                claimed = st.form_submit_button("Start session", width="stretch")
+            if claimed and claim_machine(floor, choice):
+                st.session_state.updated_at = datetime.now(TORONTO_TZ)
+                st.rerun()
+        else:
+            st.info("Every machine is in use.")
+    with release_col:
+        if yours:
+            with st.form("release_form"):
+                choice = st.selectbox("Your machine", yours)
+                released = st.form_submit_button("I'm done", width="stretch")
+            if released and release_machine(floor, choice):
+                st.session_state.updated_at = datetime.now(TORONTO_TZ)
+                st.rerun()
+        else:
+            st.caption("You have not claimed a machine.")
 
 
 def render_assistant():
