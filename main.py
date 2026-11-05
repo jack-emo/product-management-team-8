@@ -162,25 +162,33 @@ def show_html(html):
         st.markdown(html, unsafe_allow_html=True)
 
 
+def usage_lines(machine):
+    remaining = estimated_wait(machine)
+    if remaining == 0:
+        wait_line = "Usual session is over"
+    else:
+        wait_line = f"About {remaining} min left"
+    if machine.get("booked_by_you") and machine["minutes"] == 0:
+        status_line = "Your session, just started"
+    elif machine.get("booked_by_you"):
+        status_line = f"Your session for {machine['minutes']} min"
+    else:
+        status_line = f"In use for {machine['minutes']} min"
+    return status_line, wait_line
+
+
 def render_card(machine):
     if machine.get("booked_by_you"):
-        label = "Your session"
-        remaining = estimated_wait(machine)
-        elapsed = "Just started" if machine["minutes"] == 0 else f"{machine['minutes']} min"
-        wait = "usual session over" if remaining == 0 else f"~{remaining} min left"
-        detail = f"{elapsed} · {wait}"
+        status_line, wait_line = usage_lines(machine)
         accent = "#175cd3"
         background = "#f5f8ff"
     elif machine["in_use"]:
-        label = "In use"
-        remaining = estimated_wait(machine)
-        wait = "usual session over" if remaining == 0 else f"~{remaining} min left"
-        detail = f"{machine['minutes']} min · {wait}"
+        status_line, wait_line = usage_lines(machine)
         accent = "#b42318"
         background = "#fff7f6"
     else:
-        label = "Available"
-        detail = "Open"
+        status_line = "Available"
+        wait_line = "Open now"
         accent = "#067647"
         background = "#f4fbf7"
     show_html(
@@ -188,7 +196,8 @@ def render_card(machine):
         <div style="background:{background};border:1px solid #eceae6;border-left:4px solid {accent};border-radius:10px;padding:12px 14px;margin-bottom:10px;">
             <div style="font-weight:600;font-size:1rem;">{machine["name"]}</div>
             <div style="color:#667085;font-size:0.85rem;margin-top:2px;">{machine["muscles"]}</div>
-            <div style="color:{accent};font-weight:600;font-size:0.9rem;margin-top:8px;">{label} · {detail}</div>
+            <div style="color:{accent};font-weight:600;font-size:0.9rem;margin-top:8px;">{status_line}</div>
+            <div style="color:#667085;font-size:0.85rem;margin-top:2px;">{wait_line}</div>
         </div>
         """
     )
@@ -240,8 +249,8 @@ def render_board():
     with title_col:
         st.title("What's free right now")
         st.caption(
-            f"Updated {updated}. Simulated floor. A taken machine shows time in use "
-            "and about how long is left in a typical session."
+            f"Updated {updated}. Simulated floor. A taken machine shows how long "
+            "someone has been on it, and about how long is left."
         )
     with action_col:
         st.write("")
