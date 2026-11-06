@@ -1,0 +1,26 @@
+name: Wake Streamlit app
+
+on:
+  schedule:
+    - cron: "0 */4 * * *"
+  workflow_dispatch:
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install browser dependencies
+        run: pip install -r scripts/wake-requirements.txt
+
+      - name: Open the app and click the wake button
+        env:
+          STREAMLIT_APP_URL: https://team-8-pm-module.streamlit.app/
+        run: python scripts/wake_app.py
